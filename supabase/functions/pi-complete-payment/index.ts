@@ -1,74 +1,103 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+// supabase/functions/pi-complete/index.ts
+// Completes a Pi payment: POST { paymentId: string, txid: string }
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+const PI_API = "https://api.minepi.com/v2";
+const cors = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Content-Type": "application/json",
+  "Cache-Control": "no-store",
+};
+
+type Json = Record<string, unknown>;
+const json = (body: Json, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: cors });
+const text = (body: string, status = 200) =>
+  new Response(body, { status, headers: cors });
+
+function tryParse(s: string) { try { return JSON.parse(s); } catch { return s; } }
+async function safeJson<T = any>(req: Request): Promise<T | null> {
+  try {
+    const raw = await req.text();
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+const isValidStr = (s?: string) => !!s && s.length <= 300;
+
+async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
+  let lastErr: unknown = null;
+  for (let i = 0; i < attempts; i++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000); // 15s timeout
+    try {
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+      if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+        await new Promise(r => setTimeout(r, 500 * (i + 1)));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      clearTimeout(timer);
+      lastErr = e;
+      await new Promise(r => setTimeout(r, 400 * (i + 1)));
+    }
+  }
+  throw lastErr ?? new Error("Network error");
 }
 
-serve(async (req) => {
-  // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+serve(async (req: Request) => {
+  // CORS preflight
+  if (req.method === "OPTIONS") return text("ok");
+
+  if (req.method !== "POST") {
+    return json({ error: "Method Not Allowed" }, 405);
+  }
+
+  // Parse & validate
+  const body = await safeJson<{ paymentId?: string; txid?: string }>(req);
+  const paymentId = body?.paymentId;
+  const txid = body?.txid;
+  if (!isValidStr(paymentId) || !isValidStr(txid)) {
+    return json({ error: "paymentId & txid required" }, 400);
+  }
+
+  // Secret
+  const serverKey = Deno.env.get("PI_SERVER_API_KEY");
+  if (!serverKey) {
+    console.error("[pi-complete] Missing PI_SERVER_API_KEY");
+    return json({ error: "Server not configured" }, 500);
   }
 
   try {
-    const { paymentId, txid } = await req.json()
-    
-    if (!paymentId || !txid) {
-      return new Response(
-        JSON.stringify({ error: 'Payment ID and transaction ID are required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Get the Pi Server API Key from environment
-    const piServerKey = Deno.env.get('PI_SERVER_API_KEY')
-    if (!piServerKey) {
-      console.error('PI_SERVER_API_KEY not configured')
-      return new Response(
-        JSON.stringify({ error: 'Server configuration error' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Complete the payment with Pi Network
-    const response = await fetch(`https://api.minepi.com/v2/payments/${paymentId}/complete`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Key ${piServerKey}`,
-        'Content-Type': 'application/json',
+    const res = await fetchWithRetry(
+      `${PI_API}/payments/${encodeURIComponent(paymentId!)}/complete`,
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Key ${serverKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ txid }),
       },
-      body: JSON.stringify({ txid }),
-    })
+      3
+    );
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error('Pi API error:', response.status, errorText)
-      
+    const bodyText = await res.text();
+    if (!res.ok) {
+      console.error("[pi-complete] Pi API error", res.status, bodyText);
       return new Response(
-        JSON.stringify({ 
-          error: 'Failed to complete payment with Pi Network',
-          details: errorText 
-        }),
-        { status: response.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+        JSON.stringify({ error: "Pi complete failed", details: tryParse(bodyText) }),
+        { status: res.status, headers: cors }
+      );
     }
 
-    const paymentData = await response.json()
-    
-    return new Response(
-      JSON.stringify(paymentData),
-      { 
-        status: 200, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    )
-
-  } catch (error) {
-    console.error('Error completing Pi payment:', error)
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return new Response(bodyText, { status: 200, headers: cors });
+  } catch (err) {
+    console.error("[pi-complete] Unexpected error", err);
+    return json({ error: "Internal server error" }, 500);
   }
-})
+});
