@@ -22,9 +22,9 @@ export function usePiSDK() {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isLoadingSession, setIsLoadingSession] = useState(true);
 
-  /* -------------------------------
-     Pi SDK readiness (NO polling)
-  -------------------------------- */
+  /* ----------------------------------------
+     Pi SDK readiness (event-based, no race)
+  ----------------------------------------- */
   useEffect(() => {
     if (window.__PI_READY__) {
       setIsReady(true);
@@ -39,9 +39,9 @@ export function usePiSDK() {
     };
   }, []);
 
-  /* -------------------------------
-     Restore session (UI only)
-  -------------------------------- */
+  /* ----------------------------------------
+     Restore session (UI only, non-authoritative)
+  ----------------------------------------- */
   useEffect(() => {
     const stored = localStorage.getItem('pi_user');
     if (stored) {
@@ -54,9 +54,9 @@ export function usePiSDK() {
     setIsLoadingSession(false);
   }, []);
 
-  /* -------------------------------
-     Authenticate user
-  -------------------------------- */
+  /* ----------------------------------------
+     Authenticate user (NON-BLOCKING)
+  ----------------------------------------- */
   const authenticate = useCallback(async () => {
     if (!isReady || !window.Pi) {
       throw new Error('Pi SDK not ready');
@@ -67,17 +67,13 @@ export function usePiSDK() {
     try {
       const auth = await window.Pi.authenticate(
         ['username', 'payments'],
-        // IMPORTANT: frontend does NOT decide anything here
         (payment: any) => {
+          // IMPORTANT: frontend only reports
           if (payment?.identifier) {
-            // Notify backend ONLY
             piAPI.reportIncompletePayment(payment.identifier);
           }
         }
       );
-
-      // Verify user server-side (/me)
-      await piAPI.verifyUser(auth.accessToken);
 
       const piUser: PiUser = {
         uid: auth.user.uid,
@@ -85,8 +81,15 @@ export function usePiSDK() {
         accessToken: auth.accessToken,
       };
 
+      // ✅ UI login completes immediately
       setUser(piUser);
       localStorage.setItem('pi_user', JSON.stringify(piUser));
+
+      // ✅ Backend verification happens asynchronously
+      // ❌ MUST NOT block login (fixes “Signing in…”)
+      piAPI.verifyUser(auth.accessToken).catch((err) => {
+        console.error('[Pi verifyUser failed]', err);
+      });
 
       return piUser;
     } finally {
@@ -94,17 +97,17 @@ export function usePiSDK() {
     }
   }, [isReady]);
 
-  /* -------------------------------
+  /* ----------------------------------------
      Logout
-  -------------------------------- */
+  ----------------------------------------- */
   const logout = useCallback(() => {
     setUser(null);
     localStorage.removeItem('pi_user');
   }, []);
 
-  /* -------------------------------
+  /* ----------------------------------------
      Create payment (frontend ONLY)
-  -------------------------------- */
+  ----------------------------------------- */
   const createPayment = useCallback(
     async (
       paymentData: {
