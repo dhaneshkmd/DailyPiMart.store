@@ -3,21 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
     <title>Daily Pi Mart - Pi Network Marketplace</title>
-    <meta name="description" content="Daily Pi Mart - The first marketplace powered by Pi cryptocurrency. Buy, sell, and trade with the future of digital money." />
+
+    <meta
+      name="description"
+      content="Daily Pi Mart is a Pi Network marketplace where users can buy and sell goods using Pi cryptocurrency."
+    />
     <meta name="author" content="Daily Pi Mart" />
 
-    <!-- Social -->
+    <!-- Open Graph -->
     <meta property="og:title" content="Daily Pi Mart - Pi Network Marketplace" />
-    <meta property="og:description" content="Daily Pi Mart - The first marketplace powered by Pi cryptocurrency. Buy, sell, and trade with the future of digital money." />
+    <meta
+      property="og:description"
+      content="Buy and sell on Daily Pi Mart using Pi cryptocurrency."
+    />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@lovable_dev" />
-    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
 
     <style>
-      /* Minimal inline styles for the Pi Browser banner */
+      /* Pi Browser warning banner */
       #pi-browser-banner {
         display: none;
         position: sticky;
@@ -27,110 +31,104 @@
         background: #fee2e2;
         color: #7f1d1d;
         border-bottom: 1px solid #fecaca;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+          sans-serif;
       }
+
       #pi-browser-banner a {
         color: #065f46;
-        text-decoration: underline;
         font-weight: 600;
+        text-decoration: underline;
       }
+
       #pi-sdk-error {
         display: none;
-        padding: 10px 16px;
-        margin: 8px 16px;
+        margin: 12px;
+        padding: 12px;
         background: #fff7ed;
         color: #7c2d12;
         border: 1px solid #fed7aa;
         border-radius: 8px;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+          sans-serif;
       }
     </style>
   </head>
 
   <body>
+    <!-- Shown only when NOT inside Pi Browser -->
     <div id="pi-browser-banner">
-      Payment Error: Please open this app in the <strong>Pi Browser</strong> to make payments.
-      &nbsp;→&nbsp;<a id="open-in-pi" href="pi://www.dailypimart.store">Open in Pi Browser</a>
+      Payments are only available in the <strong>Pi Browser</strong>.
+      <a href="pi://www.dailypimart.store">Open in Pi Browser</a>
     </div>
-    <div id="pi-sdk-error">Couldn’t load the Pi SDK. Check your connection and try again.</div>
+
+    <div id="pi-sdk-error">
+      Failed to load Pi SDK. Please check your connection and reload.
+    </div>
 
     <div id="root"></div>
 
-    <!-- Pi SDK (must load before your app bundle) -->
+    <!-- Pi SDK (must load BEFORE app code) -->
     <script
-      id="pi-sdk"
       src="https://sdk.minepi.com/pi-sdk.js"
-      async
       onerror="document.getElementById('pi-sdk-error').style.display='block';"
     ></script>
 
     <script>
-      // Robust Pi Browser + SDK detection and initialization
       (function () {
-        const isPiProtocol = window.location.protocol === 'pi:';
-        const isLikelyPi = !!window.Pi; // Pi Browser injects window.Pi
-        const inPiBrowser = isPiProtocol || isLikelyPi;
+        const isPiProtocol = window.location.protocol === "pi:";
+        const inPiBrowser = !!window.Pi || isPiProtocol;
 
-        // Show banner if we're not in Pi Browser (prevents user confusion at checkout)
+        // Show banner if not in Pi Browser
         if (!inPiBrowser) {
-          const banner = document.getElementById('pi-browser-banner');
-          banner.style.display = 'block';
-
-          // Try to deep-link automatically on user click anywhere near checkout flows if you want:
-          const openLink = document.getElementById('open-in-pi');
-          openLink.addEventListener('click', () => {
-            // No-op; the pi:// link handles it.
-          });
+          const banner = document.getElementById("pi-browser-banner");
+          banner.style.display = "block";
         }
 
-        // Initialize the Pi SDK when ready (retry a few times)
-        const MAX_ATTEMPTS = 40; // ~20s total if 500ms interval
+        // Initialize Pi SDK safely
+        function initPi() {
+          if (!window.Pi || typeof window.Pi.init !== "function") {
+            return false;
+          }
+
+          try {
+            window.Pi.init({
+              version: "2.0",
+              sandbox: !isPiProtocol, // sandbox outside pi://
+            });
+
+            window.__PI_READY__ = true;
+            document.dispatchEvent(
+              new CustomEvent("pi-ready", {
+                detail: { sandbox: !isPiProtocol },
+              })
+            );
+            return true;
+          } catch (e) {
+            console.warn("Pi.init failed:", e);
+            return false;
+          }
+        }
+
+        // Retry a few times until SDK is ready
         let attempts = 0;
+        const MAX_ATTEMPTS = 20;
 
-        function initWhenReady() {
-          attempts += 1;
-
-          if (window.Pi && typeof window.Pi.init === 'function') {
-            // Use sandbox everywhere except actual Pi Browser protocol.
-            // Your app code (hooks/usePiSDK) will rely on window.Pi being present.
-            const sandbox = !isPiProtocol;
-
-            try {
-              window.Pi.init({ version: '2.0', sandbox });
-              window.__PI_READY__ = true;
-              document.dispatchEvent(new CustomEvent('pi-ready', { detail: { sandbox } }));
-              // Optional: hide banner if Pi was actually present even outside pi:// (rare but possible)
-              if (sandbox === false) {
-                const banner = document.getElementById('pi-browser-banner');
-                if (banner) banner.style.display = 'none';
-              }
-              return;
-            } catch (e) {
-              console.warn('Pi.init failed:', e);
-            }
+        const interval = setInterval(() => {
+          attempts++;
+          if (initPi() || attempts >= MAX_ATTEMPTS) {
+            clearInterval(interval);
           }
-
-          if (attempts < MAX_ATTEMPTS) {
-            setTimeout(initWhenReady, 500);
-          } else {
-            window.__PI_READY__ = false;
-            document.dispatchEvent(new CustomEvent('pi-not-ready'));
-            // Keep banner visible if not in Pi Browser; nothing else to do here.
-          }
-        }
-
-        // Kick off init once SDK script is likely loaded
-        // If async load finishes quickly, this will find window.Pi on first try
-        initWhenReady();
+        }, 500);
       })();
     </script>
 
-    <!-- Your app bundle -->
+    <!-- App bundle -->
     <script type="module" src="/src/main.tsx"></script>
 
     <noscript>
-      Payments require JavaScript and the Pi Browser. Please enable JavaScript and open
-      <a href="pi://www.dailypimart.store">pi://www.dailypimart.store</a> in the Pi Browser.
+      This app requires JavaScript and the Pi Browser.
+      <a href="pi://www.dailypimart.store">Open in Pi Browser</a>
     </noscript>
   </body>
 </html>
