@@ -1,29 +1,42 @@
 import { Link, useLocation } from 'react-router-dom';
-import { ShoppingCart, User, Search, Home, Grid3X3, ShoppingBag, LogOut } from 'lucide-react';
+import {
+  ShoppingCart,
+  User,
+  Home,
+  Grid3X3,
+  ShoppingBag,
+  LogOut,
+  Loader2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuSeparator, 
-  DropdownMenuTrigger 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { PiLoginButton } from './PiLoginButton';
 import { usePiSDK } from '@/hooks/usePiSDK';
 import { useCartStore } from '@/store/cartStore';
-import { cn } from '@/lib/utils';
 
 export function Navigation() {
   const location = useLocation();
-  const { user, isAuthenticated, logout } = usePiSDK();
+  const {
+    user,
+    isAuthenticated,
+    authenticate,
+    logout,
+    isAuthenticating,
+  } = usePiSDK();
+
   const { getTotalItems } = useCartStore();
   const totalItems = getTotalItems();
 
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <nav className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <nav className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
@@ -36,19 +49,15 @@ export function Navigation() {
             </span>
           </Link>
 
-          {/* Desktop Navigation */}
+          {/* Desktop Nav */}
           <div className="hidden md:flex items-center space-x-1">
-            <Button
-              variant={isActive('/') ? 'default' : 'ghost'}
-              size="sm"
-              asChild
-            >
+            <Button variant={isActive('/') ? 'default' : 'ghost'} size="sm" asChild>
               <Link to="/">
                 <Home className="mr-2 h-4 w-4" />
                 Home
               </Link>
             </Button>
-            
+
             <Button
               variant={isActive('/browse') ? 'default' : 'ghost'}
               size="sm"
@@ -74,7 +83,7 @@ export function Navigation() {
             )}
           </div>
 
-          {/* Right side actions */}
+          {/* Right Actions */}
           <div className="flex items-center space-x-4">
             {/* Cart */}
             <Button
@@ -86,17 +95,14 @@ export function Navigation() {
               <Link to="/cart">
                 <ShoppingCart className="h-4 w-4" />
                 {totalItems > 0 && (
-                  <Badge 
-                    variant="destructive" 
-                    className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0 text-xs"
-                  >
+                  <Badge className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0 text-xs">
                     {totalItems > 9 ? '9+' : totalItems}
                   </Badge>
                 )}
               </Link>
             </Button>
 
-            {/* User Authentication */}
+            {/* Auth */}
             {isAuthenticated && user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -107,26 +113,37 @@ export function Navigation() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem asChild>
-                    <Link to="/account" className="cursor-pointer">
-                      <User className="mr-2 h-4 w-4" />
-                      Account
-                    </Link>
+                    <Link to="/account">Account</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link to="/orders" className="cursor-pointer">
-                      <ShoppingBag className="mr-2 h-4 w-4" />
-                      Orders
-                    </Link>
+                    <Link to="/orders">Orders</Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive">
+                  <DropdownMenuItem
+                    onClick={logout}
+                    className="text-destructive cursor-pointer"
+                  >
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign Out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <PiLoginButton />
+              <Button
+                size="sm"
+                onClick={authenticate}
+                disabled={isAuthenticating}
+                className="gap-2"
+              >
+                {isAuthenticating ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Signing in…
+                  </>
+                ) : (
+                  'Sign in with Pi'
+                )}
+              </Button>
             )}
           </div>
         </div>
