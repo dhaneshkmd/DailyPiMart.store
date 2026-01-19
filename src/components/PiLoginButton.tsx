@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { usePiSDK } from '@/hooks/usePiSDK';
-import { useToast } from '@/hooks/use-toast';
 import { Loader2, LogIn } from 'lucide-react';
 
 interface PiLoginButtonProps {
@@ -10,52 +8,39 @@ interface PiLoginButtonProps {
 }
 
 export function PiLoginButton({ onSuccess, className }: PiLoginButtonProps) {
-  const { isReady, isAuthenticating, authenticate, isLoadingSession } = usePiSDK();
-  const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
+  const {
+    isReady,
+    isAuthenticating,
+    authenticate,
+    isLoadingSession,
+  } = usePiSDK();
 
   const handleLogin = async () => {
-    if (!isReady) {
-      toast({
-        title: "Pi Browser Required",
-        description: "Please open this app in Pi Browser to sign in with Pi.",
-        variant: "destructive",
-      });
-      return;
-    }
+    if (!isReady || isAuthenticating) return;
 
-    setIsLoading(true);
     try {
-      const user = await authenticate();
-      toast({
-        title: "Welcome to Daily Pi Mart!",
-        description: `Signed in as ${user.username}`,
-      });
+      await authenticate();
       onSuccess?.();
-    } catch (error) {
-      toast({
-        title: "Sign In Failed",
-        description: "Unable to sign in with Pi. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
+    } catch (err) {
+      // IMPORTANT:
+      // Do NOT toast or block here — Pi Browser handles auth UX
+      console.error('[Pi login failed]', err);
     }
   };
 
-  const isDisabled = !isReady || isAuthenticating || isLoading || isLoadingSession;
+  const disabled = !isReady || isAuthenticating || isLoadingSession;
 
   return (
     <Button
       onClick={handleLogin}
-      disabled={isDisabled}
+      disabled={disabled}
       className={className}
       variant="default"
     >
-      {(isAuthenticating || isLoading) ? (
+      {isAuthenticating ? (
         <>
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Signing in...
+          Signing in…
         </>
       ) : (
         <>
